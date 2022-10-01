@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<link href='https://fonts.googleapis.com/css?family=Press Start 2P' rel='stylesheet'>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/2.6.2/phaser.js"></script>
+<link rel="stylesheet" href="css/style-min.css" />
+
+<script type="text/javascript" src="https://unpkg.com/web3@1.2.11/dist/web3.min.js"></script>
+<script type="text/javascript" src="https://unpkg.com/web3modal@1.9.0/dist/index.js"></script>
+<script type="text/javascript" src="https://unpkg.com/evm-chains@0.2.0/dist/umd/index.min.js"></script>
+<script type="text/javascript" src="https://unpkg.com/@walletconnect/web3-provider@1.2.1/dist/umd/index.min.js"></script>
+<script type="text/javascript" src="https://unpkg.com/fortmatic@2.0.6/dist/fortmatic.js"></script>
+<script type="text/javascript" src="js/wallet.js"></script>
+ <style>
+  html,body { margin: 0px; height: 100%; font-family: 'Press Start 2P';font-size: 22px;}
+  #cont {
+    width:100%;
+    height:100%;
+    display:block;
+    background-color:#000000;
+    display:flex;
+    align-items: center;
+    justify-content: center;
+    overflow:hidden;
+  }
+
+  #dogeslider {
+    display:flex;
+    align-items: center;
+    justify-content: center;
+    overflow:hidden;
+  }
+ </style>
+</head>
+<body>
+
+  <div class="dialogue">
+    <div class="dialogue__content">
+      <div class="dialogue__overlay">
+      <div id="cont">
+        <div id="dogeslider"></div>
+      </div>
+      <div id="connected">
+        <div class="spacer-small"></div>
+          <ul>
+            <li id="errormsg"></li>
+            <li id="selectedAccount"></li>
+          </ul>
+          <div class="spacer-small"></div>
+        </div>
+        <div class="spacer-small"></div>
+        <div class="buttons">
+          <a id="btn-start" class="ax" onclick="startDemo()">Demo</a>
+        </div>
+        <br/>
+        <div class="buttons">
+          <a id="btn-connect">Connect</a>
+          <a id="btn-disconnect" class="ax" style="display:none;">Quit</a>
+          <a id="btn-quit" class="ax" onclick="quitDemo()" style="display:none;">Quit</a>
+        </div>
+        <ul>
+          <li>Mint a DogeBits NFT</li>
+          <li>on MoonBoxes #DOGECHAIN</li>
+        </ul>
+        <div class="buttons" style="padding-top:20px;">
+          <a id="btn-mint2" target="_blank" href="https://moonboxes.io/artist/0x414a81247DC7e90DaD5f354c879c07520F60cEC0" >MoonBoxes</a>
+        </div>
+      </div>
+     </div>
+    </div>
+  </div>
+</body>
+
+<script>
+var isDemo = false;
+var gameClock = 0;
+
+function startGame() {
+  canStartGame();
+}
+function startDemo() {
+   isDemo = true;
+   document.querySelector("#btn-connect").style.display = "none";
+   document.querySelector("#btn-quit").style.display = "block";
+   document.querySelector("#btn-start").style.display = "none";
+   startGame();
+}
+function quitDemo() {
+  if(game !== undefined)
+    showMain();
+
+  document.querySelector("#btn-connect").style.display = "block";
+  document.querySelector("#btn-quit").style.display = "none";
+  document.querySelector("#btn-start").style.display = "block";
+}
+
+function destroyGame() {
+  if(game !== undefined) {
+    showMain();
+  }
+  document.querySelector("#btn-disconnect").style.display = "none";
+}
+</script>
+
+<script>
+var PIECE_WIDTH = 350, PIECE_HEIGHT = 350, BOARD_COLS, BOARD_ROWS;
+var piecesGroup, piecesAmount, shuffledIndexArray = [];
+var gameEnded = false;
+var slide;
+var board;
+var menu;
+var isPlaying = false;
+let connected = false;
+var bfont;
+var alpha;
+var mask;
+var puzzleSolvedSprite;
+
+function displayText(text) {
+  console.log(text);
+}
+
+function setConnected(state) {
+  connected = state;
+  
+  document.querySelector("#btn-disconnect").style.display = (connected ? "none" : "block");
+  document.querySelector("#btn-connect").style.display = (connected ? "none" : "block");
+}
+
+var myDogeBits = [];
+
+function clearDogeBits() {
+  myDogeBits = [];
+}
+function loadDogeBits(path) {
+  myDogeBits.push(path);
+  console.log("Loaded ", path);
+}
+
+function canStartGame() {
+  if( myDogeBits.length == 0 ) { 
+    for( let i = 0; i < 5; i ++ ) {
+      let v = Math.floor( Math.random() * 20000) + 1;
+      loadDogeBits("https://moonboxes.io/api/nft/images/dogebits/"+ v + ".webp");      
+    }
+  }
+  return connected == true && myDogeBits.length >= 1;
+}
+
+function preload() {
+  let n = Math.floor( Math.random() * myDogeBits.length);
+  let img = myDogeBits[ n ];
+  board = game.load.spritesheet("background", img, PIECE_WIDTH, PIECE_HEIGHT);
+  game.load.audio( "slide", "assets/piece-slide.mp3");
+  game.load.spritesheet("menu", "assets/dogebits-banner.webp");
+  game.load.image('knightHawks', 'assets/knighthawks.webp');
+  game.load.image("solved", img); 
+}
+
+function create() {
+  puzzleSolvedSprite = game.add.sprite( game.world.centerX, game.world.centerY, 'solved');
+  puzzleSolvedSprite.anchor.setTo(0.5);
+  puzzleSolvedSprite.alpha= 0;
+
+  prepareBoard();
+
+  menu = game.add.sprite( 700, 700, 'menu');
+  menu.anchor.setTo(0.5);
+  menu.inputEnabled = true;
+
+  game.scale.scaleMode = 4;
+  game.input.onDown.add( togglePlay, this);
+
+  let a = (window.innerWidth > window.innerHeight ? window.innerHeight: window.innerWidth);
+  let b = a / ( 1400 + 700 );
+  
+  game.scale.setUserScale(b,b);
+  slide = game.add.audio( "slide" );
+
+  createText();
+}
+
+function prepareBoard() {
+
+  var piecesIndex = 0,i, j, piece;
+  BOARD_COLS = Math.floor(game.world.width / PIECE_WIDTH);
+  BOARD_ROWS = Math.floor(game.world.height / PIECE_HEIGHT);
+
+  piecesAmount = BOARD_COLS * BOARD_ROWS;
+  shuffledIndexArray = createShuffledIndexArray();
+  piecesGroup = game.add.group();
+
+  
+  for (i = 0; i < BOARD_ROWS; i++) {
+    for (j = 0; j < BOARD_COLS; j++) {
+      if (shuffledIndexArray[piecesIndex]) {
+        piece = piecesGroup.create(j * PIECE_WIDTH, i * PIECE_HEIGHT, "background", shuffledIndexArray[piecesIndex])
+      }
+      else { //initial position of black piece
+        piece = piecesGroup.create(j * PIECE_WIDTH, i * PIECE_HEIGHT);
+        piece.black = true;
+      }
+      piece.name = 'piece' + i.toString() + 'x' + j.toString();
+      piece.currentIndex = piecesIndex;
+      piece.destIndex = shuffledIndexArray[piecesIndex];
+      piece.inputEnabled = true;
+      piece.visible = false;
+      piece.events.onInputDown.add(selectPiece, this);
+      piece.posX = j;
+      piece.posY = i;
+      piecesIndex++;
+    }
+  }
+}
+
+var myTimeout;
+function togglePlay() {
+
+  if(!connected && !isDemo)
+    return;
+
+  if(isPlaying)
+    return;
+  
+  letters.forEach(function(e) {
+    e.visible = false;
+  });
+
+  menu.visible = !menu.visible;
+
+  isPlaying = true;
+  
+  game.add.tween(puzzleSolvedSprite).to( { alpha: 1 }, 2000, Phaser.Easing.Linear.NONE, true,0,0, false);
+  puzzleSolvedSprite.visible = true;
+  myTimeout = setTimeout(function() {
+    piecesGroup.children.forEach(function(element) {
+      element.visible = !element.visible;
+    });
+    
+    puzzleSolvedSprite.visible = false;
+  }, 3000);
+
+}
+
+function selectPiece(piece) {
+  if(gameEnded)
+    return; 
+
+  var blackPiece = canMove(piece);
+
+  if (blackPiece) {
+    slide.play();
+    movePiece(piece, blackPiece);
+  }
+
+}
+
+function canMove(piece) {
+
+  var foundBlackElem = false;
+
+  piecesGroup.children.forEach(function(element) {
+    if (element.posX === (piece.posX - 1) && element.posY === piece.posY && element.black ||
+      element.posX === (piece.posX + 1) && element.posY === piece.posY && element.black ||
+      element.posY === (piece.posY - 1) && element.posX === piece.posX && element.black ||
+      element.posY === (piece.posY + 1) && element.posX === piece.posX && element.black) {
+      foundBlackElem = element;
+      return;
+    }
+  });
+
+  return foundBlackElem;
+}
+
+function movePiece(piece, blackPiece) {
+
+  var tmpPiece = {
+    posX: piece.posX,
+    posY: piece.posY,
+    currentIndex: piece.currentIndex
+  };
+
+  game.add.tween(piece).to({
+    x: blackPiece.posX * PIECE_WIDTH,
+    y: blackPiece.posY * PIECE_HEIGHT
+  }, 300, Phaser.Easing.Linear.None, true);
+
+  piece.posX = blackPiece.posX;
+  piece.posY = blackPiece.posY;
+  piece.currentIndex = blackPiece.currentIndex;
+  piece.name = 'piece' + piece.posX.toString() + 'x' + piece.posY.toString();
+
+  blackPiece.posX = tmpPiece.posX;
+  blackPiece.posY = tmpPiece.posY;
+  blackPiece.currentIndex = tmpPiece.currentIndex;
+  blackPiece.name = 'piece' + blackPiece.posX.toString() + 'x' + blackPiece.posY.toString();
+
+  gameEnded = checkIfFinished();
+
+}
+
+function checkIfFinished() {
+  var isFinished = true;
+
+  piecesGroup.children.forEach(function(element) {
+    if (element.currentIndex !== element.destIndex) {
+      isFinished = false;
+      return;
+    }
+
+  });
+
+  if (isFinished) {
+    showFinishedText();
+  }
+
+  return isFinished;
+}
+
+function down() {
+  game.tweens.removeAll();
+  game.state.restart(); 
+  isPlaying = false;
+  
+}
+
+function showMain() {
+  if(myTimeout!==undefined)
+    clearTimeout(myTimeout);
+  isPlaying = false;
+  letters.forEach(function(e) {
+    e.visible = true;
+  });
+  menu.visible = true;
+  puzzleSolvedSprite.visible = false;
+  piecesGroup.children.forEach(function(element) {
+      element.visible = false;
+    });
+  
+}
+
+function showFinishedText() {
+
+  dropTime = game.time.now + 200;
+
+  let textContent = youWin[ Math.floor( Math.random() * youWin.length) ];
+
+  var text = game.add.text(game.world.centerX, game.world.centerY, textContent, {
+    font: '85px "Press Start 2P"',
+    style: "bold",
+    fill: "black",
+    fontFamily: '"Press Start 2P"',
+  });
+  
+  text.anchor.set(0.5);
+  grd = text.context.createLinearGradient(0, 0, 0, text.canvas.height);
+  grd.addColorStop(0,'#e6d9b7');
+  grd.addColorStop(1,'#be9949');
+  
+  text.fill = grd;
+
+  text.align = 'center';
+  text.stroke = '#000000';
+  text.strokeThickness = 4;
+  text.setShadow(15, 15, 'rgba(0,0,0,0.75)', 15);
+
+  text.inputEnabled = true;
+  text.events.onInputDown.add( down,this);  
+}
+
+let lastState = false;
+function update() {
+  gameClock = performance.now();
+
+  if( isDemo )
+    return;
+  
+  if(lastState != connected ) {
+    document.querySelector("#btn-disconnect").style.display = (connected ? "block" : "none");
+    lastState = connected;
+  }
+}
+
+function createShuffledIndexArray() {
+  var indexArray = [];
+
+  for (var i = 0; i < piecesAmount; i++) {
+    indexArray.push(i);
+  }
+
+  return shuffle(indexArray);
+}
+
+function shuffle(array) {
+  var counter = array.length,
+    temp,
+    index;
+
+  while (counter > 0) {
+    index = Math.floor(Math.random() * counter);
+
+    counter--;
+
+    temp = array[counter];
+    array[counter] = array[index];
+    array[index] = temp;
+  }
+
+  return array;
+}
+
+var font;
+var letters = [];
+var pos = [];
+var scale = 2;
+var page = -1;
+
+function startScroller() {
+  latters = [];
+  pos = [];
+  scale = 2;
+  page = -1;
+  mask = new Phaser.Rectangle();
+}
+
+var scroller = [ 
+                "----------",
+                " DOGE BITS", 
+                "----------", 
+                connected == true ? "CLICK     ": "CONNECT   ", 
+                "   TO PLAY", 
+             
+                ];
+
+function updateText() {
+  scroller = [ 
+                "----------",
+                " DOGE BITS", 
+                "----------", 
+                connected == true ? "CLICK     ": "CONNECT   ", 
+                "   TO PLAY", 
+             
+                ];
+}
+
+function scrollLength() {
+  let l = 0;
+  for( let i = 0; i < scroller.length; i ++ ) {
+    l += scroller[i].length;
+  }
+  return l;
+}
+
+function createText() {
+  startScroller();
+  font = game.add.retroFont('knightHawks', 31, 25, Phaser.RetroFont.TEXT_SET2, 10, 1, 0);
+
+  //  Scale 1:1
+  var x = 0;
+  var y = 0;
+
+  //  Scale 2:1
+  scale = 2;
+  var tx = 64;
+  var ty = 64;
+  var hx = 32;
+  var hy = 32;
+  
+  game.stage.smoothed = false;
+
+  let num = 10;
+  let dx = game.world.width / 2 - (( num * tx ) /2);
+  let dx2= game.world.width - dx;
+  x = dx;
+  //  In reverse so they overlap in the correct order
+  for (var i = 0; i < 80; i++)
+  {
+      //  For some reason using a BMD here doesn't allow us to share the texture - need to investigate why
+      var letter = game.add.sprite(game.world.centerX, game.world.centerY, 'knightHawks');
+  
+      letter.scale.set(0);
+      letter.anchor.set(0.5);
+      letter.animations.loadFrameData(font.frameData, 48);
+
+      letters.push(letter);
+      pos.push( { x: x + hx, y: y + hy } ); // add 16 because of the anchor
+      
+      x += tx;
+      if (x >= dx2)
+      {
+          x = dx;
+          y += ty;
+      }
+  }
+  bringIn();
+}
+
+function setLetters() {
+  page++;
+
+  if (page === 3)
+      page = 0;
+      
+  updateText();
+  
+  var i = 0;
+  for (var y = 0; y < 8; y++)
+  {
+      for (var x = 0; x < 10; x++)
+      {
+
+          if( ((page*8) + y) >= scroller.length )
+              return;
+          letters[i].frame = font.grabData[scroller[(page * 8) + y].charCodeAt(x)];
+          i++;
+      }
+  }
+}
+
+function bringIn() {
+  if(isPlaying)
+    return;
+  let stop = scrollLength();
+
+  setLetters();
+
+  var delay = 0;
+  var speed = 300;
+
+  for (var i = 0; i < 80; i++)
+  {
+    if( i >= stop )
+      break;
+
+      if (page % 2 === 1)
+      {
+          game.add.tween(letters[i].position).to( { x: pos[i].x, y: pos[i].y }, speed, Phaser.Easing.Back.Out, true, delay);
+          game.add.tween(letters[i].scale).to( { x: scale, y: scale }, speed, Phaser.Easing.Back.Out, true, delay);
+      }
+      else
+      {
+          game.add.tween(letters[i].position).to( { x: pos[i].x, y: pos[i].y }, speed, Phaser.Easing.Sinusoidal.Out, true, delay);
+          game.add.tween(letters[i].scale).to( { x: scale, y: scale }, speed, Phaser.Easing.Sinusoidal.Out, true, delay);
+      }
+
+      delay += 100;
+  }
+
+  game.time.events.add(delay + 2000, takeAway, this);
+}
+
+function takeAway() {
+  if(isPlaying)
+    return;
+
+  var delay = 0;
+  var speed = 200;
+
+  for (var i = 79; i >= 0; i--)
+  {
+      game.add.tween(letters[i].position).to( { x: game.world.centerX, y: game.world.centerY }, speed, Phaser.Easing.Sinusoidal.Out, true, delay);
+      game.add.tween(letters[i].scale).to( { x: 0, y: 0 }, speed, Phaser.Easing.Sinusoidal.Out, true, delay);
+      delay += 50;
+  }
+
+  game.time.events.add(delay + 200, bringIn, this);
+}
+
+function makeRasterFont() {
+  bfont = game.make.bitmapData();
+  alpha = game.make.bitmapData();
+  raster = game.make.bitmapData();
+
+  bfont.load('knightHawks');
+  game.add.tween(mask).to( { y: -(mask.height - bfont.height) }, 4000, Phaser.Easing.Sinusoidal.InOut, true, 0, 100, true);
+}
+
+var game;
+
+const youWin = ["Very speed! Wow", "Many fast !!!", "Cool runnings!", "So score", "Wow how skill", "Such knowledge", "So cereal!" , "Very Syntax" , "Much Wow", "Wow cute", "Very genius", "Such smart", "Such wow"] ;
+
+startGame();
+game = new Phaser.Game(1400, 1400, Phaser.CANVAS, 'dogeslider', {
+    preload: preload,
+    create: create,
+    update: update, 
+  });
+
+</script>
+</html>
